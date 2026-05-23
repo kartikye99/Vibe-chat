@@ -151,8 +151,27 @@ const handleGoogleCallback = async (req, res) => {
         if (!user.avatar) user.avatar = picture;
         await user.save();
       } else {
-        // Create new user. Username might contain spaces, clean them up or make sure it's unique
-        let baseUsername = name.replace(/\s+/g, '').toLowerCase();
+        // Create new user. Safely generate a unique username.
+        let baseUsername = '';
+        if (typeof name === 'string' && name.trim().length > 0) {
+          baseUsername = name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+        }
+        
+        // Fallback to email prefix if name is missing or invalid
+        if (!baseUsername && typeof email === 'string') {
+          baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+        }
+        
+        // Final fallback if both are empty
+        if (!baseUsername) {
+          baseUsername = 'user';
+        }
+        
+        // Ensure username meets minlength of 3 characters
+        if (baseUsername.length < 3) {
+          baseUsername = baseUsername.padEnd(3, '0');
+        }
+
         let uniqueUsername = baseUsername;
         let count = 1;
 
@@ -161,6 +180,13 @@ const handleGoogleCallback = async (req, res) => {
           uniqueUsername = `${baseUsername}${count}`;
           count++;
         }
+
+        console.log('Creating Google OAuth user with details:', {
+          googleId,
+          email,
+          name,
+          generatedUsername: uniqueUsername
+        });
 
         user = await User.create({
           username: uniqueUsername,
