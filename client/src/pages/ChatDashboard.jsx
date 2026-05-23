@@ -20,6 +20,7 @@ const ChatDashboard = () => {
   const { user, token, logout, updateProfile } = useAuth();
   const { socket, onlineUsers, typingUsers, emitTyping, emitStopTyping } = useSocket();
   const navigate = useNavigate();
+  const API_BASE = import.meta.env.VITE_API_URL || '';
 
   // State Variables
   const [users, setUsers] = useState([]);
@@ -58,8 +59,8 @@ const ChatDashboard = () => {
       if (!token) return;
       try {
         const url = searchQuery
-          ? `/api/users?search=${encodeURIComponent(searchQuery)}`
-          : '/api/users';
+          ? `${API_BASE}/api/users?search=${encodeURIComponent(searchQuery)}`
+          : `${API_BASE}/api/users`;
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -85,7 +86,7 @@ const ChatDashboard = () => {
     const fetchMessages = async () => {
       if (!activeUser || !token) return;
       try {
-        const res = await fetch(`/api/messages/${activeUser._id}`, {
+        const res = await fetch(`${API_BASE}/api/messages/${activeUser._id}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -117,7 +118,7 @@ const ChatDashboard = () => {
         
         // If message is sent to me, mark it read on the backend
         if (msg.recipient._id === user._id) {
-          fetch(`/api/messages/${activeUser._id}`, {
+          fetch(`${API_BASE}/api/messages/${activeUser._id}`, {
             headers: { Authorization: `Bearer ${token}` },
           }).catch(err => console.error(err));
         }
@@ -185,7 +186,7 @@ const ChatDashboard = () => {
     emitStopTyping(activeUser._id);
 
     try {
-      const res = await fetch('/api/messages', {
+      const res = await fetch(`${API_BASE}/api/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -21,8 +21,8 @@ export const SocketProvider = ({ children }) => {
     }
 
     // Connect to server socket
-    // In local development, Express backend runs on http://localhost:5000
-    const socketConnection = io('http://localhost:5000', {
+    const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const socketConnection = io(socketUrl, {
       auth: {
         token,
       },
