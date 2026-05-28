@@ -149,6 +149,31 @@ const handleGoogleCallback = async (req, res) => {
         // Link googleId to existing account
         user.googleId = googleId;
         if (!user.avatar) user.avatar = picture;
+        
+        // Defensive check: if existing user doesn't have a valid username (min 3 chars), generate one
+        if (!user.username || user.username.length < 3) {
+          let baseUsername = '';
+          if (typeof name === 'string' && name.trim().length > 0) {
+            baseUsername = name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          }
+          if (!baseUsername && typeof email === 'string') {
+            baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          }
+          if (!baseUsername) {
+            baseUsername = 'user';
+          }
+          if (baseUsername.length < 3) {
+            baseUsername = baseUsername.padEnd(3, '0');
+          }
+          let uniqueUsername = baseUsername;
+          let count = 1;
+          while (await User.findOne({ username: uniqueUsername })) {
+            uniqueUsername = `${baseUsername}${count}`;
+            count++;
+          }
+          user.username = uniqueUsername;
+        }
+        
         await user.save();
       } else {
         // Create new user. Safely generate a unique username.

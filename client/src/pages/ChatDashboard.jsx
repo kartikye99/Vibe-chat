@@ -478,26 +478,32 @@ const ChatDashboard = () => {
   };
 
   const getChatName = (chat) => {
-    if (chat.isGroupChat) return chat.chatName;
-    // For 1-to-1, find the user that is NOT the currently logged-in user
-    const otherUser = chat.users.find((u) => u._id !== user?._id);
-    return otherUser ? otherUser.username : 'User';
+    if (!chat) return 'Chat';
+    if (chat.isGroupChat) return String(chat.chatName || 'Group Chat');
+    const usersList = Array.isArray(chat.users) ? chat.users : [];
+    const otherUser = usersList.find((u) => u && user && u._id !== user._id);
+    if (!otherUser) return 'User';
+    return String(otherUser.username || otherUser.email || 'User');
   };
 
   const getChatAvatar = (chat) => {
+    if (!chat) return 'https://api.dicebear.com/7.x/bottts/svg?seed=avatar';
     if (chat.isGroupChat) {
-      // Return a clean, premium group icon svg from dicebear using the group name seed
-      return `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(chat.chatName)}`;
+      return `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(chat.chatName || 'group')}`;
     }
-    const otherUser = chat.users.find((u) => u._id !== user?._id);
-    return otherUser ? otherUser.avatar : 'https://api.dicebear.com/7.x/bottts/svg?seed=avatar';
+    const usersList = Array.isArray(chat.users) ? chat.users : [];
+    const otherUser = usersList.find((u) => u && user && u._id !== user._id);
+    return otherUser && otherUser.avatar ? otherUser.avatar : 'https://api.dicebear.com/7.x/bottts/svg?seed=avatar';
   };
 
   const getChatBio = (chat) => {
+    if (!chat) return '';
     if (chat.isGroupChat) {
-      return `${chat.users.length} members`;
+      const memberCount = Array.isArray(chat.users) ? chat.users.length : 0;
+      return `${memberCount} members`;
     }
-    const otherUser = chat.users.find((u) => u._id !== user?._id);
+    const usersList = Array.isArray(chat.users) ? chat.users : [];
+    const otherUser = usersList.find((u) => u && user && u._id !== user._id);
     const otherUserOnline = otherUser ? onlineUsers.includes(otherUser._id) : false;
     return otherUserOnline ? 'online' : 'offline';
   };
@@ -508,23 +514,39 @@ const ChatDashboard = () => {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Dynamic filter for matching messages
-  const filteredMessages = messages.filter((msg) =>
-    msg.content?.toLowerCase().includes(msgSearchQuery.toLowerCase())
-  );
+  // Dynamic filter for matching messages safely
+  const filteredMessages = messages.filter((msg) => {
+    if (!msg) return false;
+    const content = typeof msg.content === 'string' ? msg.content : '';
+    const query = typeof msgSearchQuery === 'string' ? msgSearchQuery : '';
+    return content.toLowerCase().includes(query.toLowerCase());
+  });
 
   // Filter existing chats by name, or search other users to start new chat
-  const filteredChats = chats.filter((chat) =>
-    getChatName(chat).toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredChats = chats.filter((chat) => {
+    if (!chat) return false;
+    const name = getChatName(chat) || '';
+    return name.toLowerCase().includes((searchQuery || '').toLowerCase());
+  });
 
-  // Exclude users we already have 1-to-1 chats with from the "new chat" suggestions
+  // Exclude users we already have 1-to-1 chats with from the "new chat" suggestions safely
   const usersAvailableForNewChat = users.filter((u) => {
-    if (u._id === user?._id) return false; // Exclude self
-    const hasChat = chats.some(
-      (c) => !c.isGroupChat && c.users.some((chatUser) => chatUser._id === u._id)
+    if (!u || !user || u._id === user._id) return false; // Exclude self
+    
+    const hasChat = Array.isArray(chats) && chats.some(
+      (c) => c && !c.isGroupChat && Array.isArray(c.users) && c.users.some((chatUser) => chatUser && chatUser._id === u._id)
     );
-    return !hasChat && u.username.toLowerCase().includes(searchQuery.toLowerCase());
+    if (hasChat) return false;
+
+    const query = (searchQuery || '').toLowerCase();
+    const usernameMatch = typeof u.username === 'string' 
+      ? u.username.toLowerCase().includes(query)
+      : false;
+    const emailMatch = typeof u.email === 'string'
+      ? u.email.toLowerCase().includes(query)
+      : false;
+      
+    return usernameMatch || emailMatch;
   });
 
   return (
@@ -621,10 +643,10 @@ const ChatDashboard = () => {
             const unread = unreadCounts[chat._id] || 0;
             const hasTyping = typingUsers[chat._id] && Object.values(typingUsers[chat._id]).some(Boolean);
 
-            // Determine if the contact is online (1-to-1 chats only)
+            // Determine if the contact is online (1-to-1 chats only) safely
             let isOnline = false;
-            if (!chat.isGroupChat) {
-              const otherUser = chat.users.find((u) => u._id !== user?._id);
+            if (!chat.isGroupChat && Array.isArray(chat.users)) {
+              const otherUser = chat.users.find((u) => u && user && u._id !== user._id);
               if (otherUser) isOnline = onlineUsers.includes(otherUser._id);
             }
 
@@ -724,7 +746,11 @@ const ChatDashboard = () => {
                   {!activeChat.isGroupChat && (
                     <div 
                       className={`status-dot ${
-                        onlineUsers.includes(activeChat.users.find(u => u._id !== user?._id)?._id) ? 'online' : ''
+                        (() => {
+                          const usersList = Array.isArray(activeChat.users) ? activeChat.users : [];
+                          const otherUser = usersList.find((u) => u && user && u._id !== user._id);
+                          return otherUser && onlineUsers.includes(otherUser._id) ? 'online' : '';
+                        })()
                       }`} 
                     />
                   )}
@@ -775,8 +801,9 @@ const ChatDashboard = () => {
                 filteredMessages.map((msg, index) => {
                   const isSentByMe = msg.sender._id === user?._id || msg.sender === user?._id;
                   
-                  // Read checkmark condition: if 1-to-1, show read if readBy has other user
-                  const otherUser = activeChat.users.find((u) => u._id !== user?._id);
+                  // Read checkmark condition: if 1-to-1, show read if readBy has other user safely
+                  const usersListForRead = Array.isArray(activeChat.users) ? activeChat.users : [];
+                  const otherUser = usersListForRead.find((u) => u && user && u._id !== user._id);
                   const isRead = !activeChat.isGroupChat 
                     ? msg.readBy?.includes(otherUser?._id)
                     : msg.readBy?.length > 1; // Read by sender + at least 1 other
@@ -871,7 +898,8 @@ const ChatDashboard = () => {
               {typingUsers[activeChat._id] && 
                 Object.entries(typingUsers[activeChat._id]).map(([typerId, isTyping]) => {
                   if (!isTyping || typerId === user?._id) return null;
-                  const typingUser = activeChat.users.find(u => u._id === typerId);
+                  const usersListForTyping = Array.isArray(activeChat.users) ? activeChat.users : [];
+                  const typingUser = usersListForTyping.find(u => u && u._id === typerId);
                   
                   return (
                     <div key={typerId} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '8px' }}>

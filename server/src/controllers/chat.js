@@ -15,10 +15,7 @@ const accessChat = async (req, res) => {
     // Check if a 1-to-1 chat already exists with this user
     let isChat = await Chat.find({
       isGroupChat: false,
-      $and: [
-        { users: { $elemMatch: { $eq: req.user.id } } },
-        { users: { $elemMatch: { $eq: userId } } },
-      ],
+      users: { $size: 2, $all: [req.user.id, userId] },
     })
       .populate('users', '-password')
       .populate('latestMessage');
