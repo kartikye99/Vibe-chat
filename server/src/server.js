@@ -4,6 +4,7 @@ const http = require('http');
 const socketio = require('socket.io');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const path = require('path');
 const connectDB = require('./config/db');
 const User = require('./models/User');
 const { addUser, removeUserBySocket, getOnlineUsers } = require('./socketTracker');
@@ -22,6 +23,7 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Setup Socket.io with CORS
 const io = socketio(server, {
@@ -82,13 +84,19 @@ io.on('connection', async (socket) => {
     console.error('Error handling user socket connection:', err);
   }
 
-  // Handle typing status events
-  socket.on('typing', ({ recipientId }) => {
-    io.to(recipientId).emit('typing_status', { senderId: userId, isTyping: true });
+  // Handle joining a specific chat channel
+  socket.on('join_chat', (chatId) => {
+    socket.join(chatId);
+    console.log(`User ${socket.user.username} joined chat room: ${chatId}`);
   });
 
-  socket.on('stop_typing', ({ recipientId }) => {
-    io.to(recipientId).emit('typing_status', { senderId: userId, isTyping: false });
+  // Handle typing status events in chat rooms
+  socket.on('typing', ({ chatId }) => {
+    socket.to(chatId).emit('typing_status', { chatId, senderId: userId, isTyping: true });
+  });
+
+  socket.on('stop_typing', ({ chatId }) => {
+    socket.to(chatId).emit('typing_status', { chatId, senderId: userId, isTyping: false });
   });
 
   // Handle manual disconnect or connection timeout
@@ -120,6 +128,8 @@ app.get('/auth/google/callback', handleGoogleCallback);
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/user'));
 app.use('/api/messages', require('./routes/message'));
+app.use('/api/chats', require('./routes/chat'));
+app.use('/api/upload', require('./routes/upload'));
 
 // Default route
 app.get('/', (req, res) => {

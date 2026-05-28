@@ -48,12 +48,22 @@ export const SocketProvider = ({ children }) => {
       }
     });
 
-    // Handle typing indicator states
-    socketConnection.on('typing_status', ({ senderId, isTyping }) => {
+    // Handle typing indicator states at chat room level
+    socketConnection.on('typing_status', ({ chatId, senderId, isTyping }) => {
       setTypingUsers((prev) => ({
         ...prev,
-        [senderId]: isTyping,
+        [chatId]: {
+          ...(prev[chatId] || {}),
+          [senderId]: isTyping,
+        },
       }));
+    });
+
+    // Global sound notification chime for received messages
+    socketConnection.on('receive_message', (msg) => {
+      if (user && msg.sender._id !== user._id) {
+        playNotificationSound();
+      }
     });
 
     socketConnection.on('disconnect', () => {
@@ -66,16 +76,65 @@ export const SocketProvider = ({ children }) => {
     };
   }, [token, user]);
 
-  // Actions
-  const emitTyping = (recipientId) => {
-    if (socket) {
-      socket.emit('typing', { recipientId });
+  // Synthesis chimer using Web Audio API (no external file files needed)
+  const playNotificationSound = () => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.15);
+      
+      setTimeout(() => {
+        try {
+          const osc2 = ctx.createOscillator();
+          const gain2 = ctx.createGain();
+          osc2.connect(gain2);
+          gain2.connect(ctx.destination);
+          
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(880, ctx.currentTime); // A5
+          gain2.gain.setValueAtTime(0.1, ctx.currentTime);
+          gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+          
+          osc2.start(ctx.currentTime);
+          osc2.stop(ctx.currentTime + 0.25);
+        } catch (err) {
+          console.error(err);
+        }
+      }, 70);
+    } catch (error) {
+      console.warn('Notification sound playback blocked or failed:', error);
     }
   };
 
-  const emitStopTyping = (recipientId) => {
+  // Actions
+  const emitTyping = (chatId) => {
     if (socket) {
-      socket.emit('stop_typing', { recipientId });
+      socket.emit('typing', { chatId });
+    }
+  };
+
+  const emitStopTyping = (chatId) => {
+    if (socket) {
+      socket.emit('stop_typing', { chatId });
+    }
+  };
+
+  const joinChatRoom = (chatId) => {
+    if (socket) {
+      socket.emit('join_chat', chatId);
     }
   };
 
@@ -87,6 +146,8 @@ export const SocketProvider = ({ children }) => {
         typingUsers,
         emitTyping,
         emitStopTyping,
+        joinChatRoom,
+        playNotificationSound,
       }}
     >
       {children}

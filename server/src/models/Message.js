@@ -7,20 +7,30 @@ const messageSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
-    recipient: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
     content: {
       type: String,
-      required: [true, 'Message content cannot be empty'],
       trim: true,
+      default: '',
     },
-    read: {
-      type: Boolean,
-      default: false,
+    chat: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Chat',
+      required: true,
     },
+    fileUrl: {
+      type: String,
+      default: '',
+    },
+    fileType: {
+      type: String,
+      default: '',
+    },
+    readBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
   },
   {
     timestamps: true,
