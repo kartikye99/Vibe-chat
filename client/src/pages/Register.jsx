@@ -52,7 +52,8 @@ const Register = () => {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = 'http://localhost:5000/api/auth/google';
+    const API_BASE = import.meta.env.VITE_API_URL || '';
+    window.location.href = `${API_BASE}/api/auth/google`;
   };
 
   return (
