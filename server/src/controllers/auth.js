@@ -1,6 +1,8 @@
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const PendingUser = require('../models/PendingUser');
+const sendEmail = require('../utils/sendEmail');
 
 const oAuth2Client = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
@@ -15,7 +17,7 @@ const generateToken = (id) => {
   });
 };
 
-// @desc    Register a new user
+// @desc    Register a new user (initiates OTP verification)
 // @route   POST /api/auth/register
 // @access  Public
 const registerUser = async (req, res) => {
@@ -26,38 +28,52 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'Please add all fields' });
     }
 
-    // Check if user exists by email
+    // Check if user exists in permanent collection by email
     const emailExists = await User.findOne({ email });
     if (emailExists) {
       return res.status(400).json({ message: 'Email already registered' });
     }
 
-    // Check if user exists by username
+    // Check if user exists in permanent collection by username
     const usernameExists = await User.findOne({ username });
     if (usernameExists) {
       return res.status(400).json({ message: 'Username is already taken' });
     }
 
-    // Create user (pre-save hook will hash password)
-    const user = await User.create({
+    // Generate 6-digit OTP code
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+
+    // Save registration payload temporarily to PendingUser collection
+    await PendingUser.findOneAndDelete({ email: email.toLowerCase() });
+    await PendingUser.create({
       username,
-      email,
-      password,
+      email: email.toLowerCase(),
+      password, // Stored plain text, will be hashed when permanent User is created
+      otp,
+      otpExpires,
     });
 
-    if (user) {
-      res.status(201).json({
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        avatar: user.avatar,
-        status: user.status,
-        bio: user.bio,
-        token: generateToken(user._id),
-      });
-    } else {
-      res.status(400).json({ message: 'Invalid user data' });
-    }
+    // Send verification email
+    const subject = 'Verify Your VibeChat Registration';
+    const text = `Your 6-digit OTP code is: ${otp}. It will expire in 10 minutes.`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #0f172a; color: #f1f5f9;">
+        <h2 style="color: #8b5cf6; text-align: center;">Welcome to VibeChat</h2>
+        <p style="font-size: 16px;">Hello,</p>
+        <p style="font-size: 16px;">Thank you for signing up. Please verify your email by entering the 6-digit OTP code below on the registration screen:</p>
+        <div style="font-size: 32px; font-weight: bold; text-align: center; margin: 30px 0; letter-spacing: 6px; color: #8b5cf6; background: rgba(139, 92, 246, 0.1); padding: 15px; border-radius: 8px; border: 1px solid rgba(139, 92, 246, 0.3);">${otp}</div>
+        <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-top: 20px;">This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+      </div>
+    `;
+    
+    await sendEmail({ email, subject, text, html });
+
+    res.status(200).json({
+      status: 'pending',
+      message: 'OTP verification code sent to email',
+      email,
+    });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ message: error.message });
@@ -282,6 +298,119 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// @desc    Verify OTP and finalize registration
+// @route   POST /api/auth/verify-otp
+// @access  Public
+const verifyOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Please provide email and OTP code' });
+    }
+
+    const pendingUser = await PendingUser.findOne({ email: email.toLowerCase() });
+
+    if (!pendingUser) {
+      return res.status(400).json({ message: 'Registration session expired. Please sign up again.' });
+    }
+
+    // Verify OTP code
+    if (pendingUser.otp !== otp) {
+      return res.status(400).json({ message: 'Invalid verification code' });
+    }
+
+    // Check expiration
+    if (new Date() > pendingUser.otpExpires) {
+      return res.status(400).json({ message: 'Verification code has expired. Please request a new one.' });
+    }
+
+    // Verify email/username uniqueness one final time in permanent collection
+    const emailExists = await User.findOne({ email: pendingUser.email });
+    if (emailExists) {
+      await PendingUser.findOneAndDelete({ email: pendingUser.email });
+      return res.status(400).json({ message: 'Email already registered' });
+    }
+
+    const usernameExists = await User.findOne({ username: pendingUser.username });
+    if (usernameExists) {
+      return res.status(400).json({ message: 'Username is already taken' });
+    }
+
+    // Create permanent user account (Pre-save hook in User model will hash password)
+    const user = await User.create({
+      username: pendingUser.username,
+      email: pendingUser.email,
+      password: pendingUser.password, // Plain text here, gets hashed by User Schema
+    });
+
+    if (user) {
+      // Delete temporary PendingUser record
+      await PendingUser.findOneAndDelete({ email: pendingUser.email });
+
+      res.status(201).json({
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar,
+        status: user.status,
+        bio: user.bio,
+        token: generateToken(user._id),
+      });
+    } else {
+      res.status(400).json({ message: 'Failed to create user account' });
+    }
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Resend registration OTP
+// @route   POST /api/auth/resend-otp
+// @access  Public
+const resendOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Please provide email address' });
+    }
+
+    const pendingUser = await PendingUser.findOne({ email: email.toLowerCase() });
+
+    if (!pendingUser) {
+      return res.status(400).json({ message: 'Registration session expired. Please sign up again.' });
+    }
+
+    // Generate new OTP code
+    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    pendingUser.otp = newOtp;
+    pendingUser.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes reset
+    await pendingUser.save();
+
+    // Send new verification email
+    const subject = 'Verify Your VibeChat Registration';
+    const text = `Your new 6-digit OTP code is: ${newOtp}. It will expire in 10 minutes.`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #0f172a; color: #f1f5f9;">
+        <h2 style="color: #8b5cf6; text-align: center;">Welcome to VibeChat</h2>
+        <p style="font-size: 16px;">Hello,</p>
+        <p style="font-size: 16px;">Your request for a new verification code was successful. Please enter the 6-digit OTP code below to verify your email:</p>
+        <div style="font-size: 32px; font-weight: bold; text-align: center; margin: 30px 0; letter-spacing: 6px; color: #8b5cf6; background: rgba(139, 92, 246, 0.1); padding: 15px; border-radius: 8px; border: 1px solid rgba(139, 92, 246, 0.3);">${newOtp}</div>
+        <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-top: 20px;">This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+      </div>
+    `;
+    
+    await sendEmail({ email: pendingUser.email, subject, text, html });
+
+    res.json({ message: 'New verification OTP sent successfully' });
+  } catch (error) {
+    console.error('Resend OTP error:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -289,4 +418,6 @@ module.exports = {
   handleGoogleCallback,
   getMe,
   updateProfile,
+  verifyOTP,
+  resendOTP,
 };

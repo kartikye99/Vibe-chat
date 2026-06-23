@@ -682,10 +682,12 @@ const ChatDashboard = () => {
             );
           })}
 
-          {/* New Chats suggestions (when searching) */}
-          {searchQuery.trim().length > 0 && usersAvailableForNewChat.length > 0 && (
+          {/* New Chats suggestions / Available Users */}
+          {usersAvailableForNewChat.length > 0 && (
             <>
-              <div className="divider" style={{ margin: '14px 0 8px' }}>Start new chat</div>
+              <div className="divider" style={{ margin: '14px 0 8px' }}>
+                {searchQuery.trim().length > 0 ? 'Search Results' : 'Available Users'}
+              </div>
               {usersAvailableForNewChat.map((otherUser) => (
                 <div
                   key={otherUser._id}

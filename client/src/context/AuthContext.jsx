@@ -100,6 +100,34 @@ export const AuthProvider = ({ children }) => {
         throw new Error(data.message || 'Registration failed');
       }
 
+      // Do not set token/user here, since registration requires OTP verification
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyOtp = async (email, otp) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, otp }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'OTP verification failed');
+      }
+
       localStorage.setItem('token', data.token);
       setToken(data.token);
       setUser({
@@ -116,6 +144,29 @@ export const AuthProvider = ({ children }) => {
       throw err;
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resendOtp = async (email) => {
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/resend-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to resend OTP');
+      }
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
     }
   };
 
@@ -180,6 +231,8 @@ export const AuthProvider = ({ children }) => {
         error,
         login,
         register,
+        verifyOtp,
+        resendOtp,
         logout,
         handleOAuthSuccess,
         updateProfile,
