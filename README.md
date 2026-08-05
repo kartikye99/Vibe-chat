@@ -1,6 +1,6 @@
 # VibeChat 💬
 
-VibeChat is a premium, real-time chat application featuring a gorgeous glassmorphic dark-theme UI. It is built using the MERN stack with native WebSockets for instant, bi-directional messaging.
+VibeChat is a premium, real-time chat application featuring a gorgeous glassmorphic dark-theme UI. It is built using the MERN stack with native WebSockets for instant, bi-directional messaging..
 
 ## ✨ Features
 
