@@ -29,7 +29,7 @@ const registerUser = async (req, res) => {
     }
 
     // Check if user exists in permanent collection by email
-    const emailExists = await User.findOne({ email });
+    const emailExists = await User.findOne({ email: email.toLowerCase() });
     if (emailExists) {
       return res.status(400).json({ message: 'Email already registered' });
     }
@@ -67,12 +67,19 @@ const registerUser = async (req, res) => {
       </div>
     `;
     
-    await sendEmail({ email, subject, text, html });
+    const emailResult = await sendEmail({ email: email.toLowerCase(), subject, text, html });
+
+    if (!emailResult.success) {
+      await PendingUser.findOneAndDelete({ email: email.toLowerCase() });
+      return res.status(500).json({
+        message: `Failed to send OTP email (${emailResult.error || 'SMTP Error'}). Please check your email credentials or try again.`,
+      });
+    }
 
     res.status(200).json({
       status: 'pending',
       message: 'OTP verification code sent to email',
-      email,
+      email: email.toLowerCase(),
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -402,7 +409,13 @@ const resendOTP = async (req, res) => {
       </div>
     `;
     
-    await sendEmail({ email: pendingUser.email, subject, text, html });
+    const emailResult = await sendEmail({ email: pendingUser.email, subject, text, html });
+
+    if (!emailResult.success) {
+      return res.status(500).json({
+        message: `Failed to resend OTP email (${emailResult.error || 'SMTP Error'}).`,
+      });
+    }
 
     res.json({ message: 'New verification OTP sent successfully' });
   } catch (error) {

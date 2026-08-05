@@ -9,32 +9,38 @@ const nodemailer = require('nodemailer');
  * @param {string} options.html - HTML content
  */
 const sendEmail = async (options) => {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  // Strip whitespace from app password if present (e.g. Google App Password "xxxx xxxx xxxx xxxx")
+  const pass = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : '';
+
   // If SMTP is not fully configured, fall back to console logging
-  if (
-    !process.env.SMTP_HOST ||
-    !process.env.SMTP_USER ||
-    !process.env.SMTP_PASS
-  ) {
+  if (!host || !user || !pass) {
     console.log('\n==================================================');
     console.log(`✉️  DEV FALLBACK: EMAIL TO: ${options.email}`);
     console.log(`📝 SUBJECT: ${options.subject}`);
     console.log(`🔑 ${options.text}`);
     console.log('==================================================\n');
-    return true;
+    return { success: true, fallback: true };
   }
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true' || parseInt(process.env.SMTP_PORT || '587') === 465,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  // Use nodemailer transport options
+  const transportConfig = (host === 'smtp.gmail.com' || process.env.SMTP_SERVICE === 'gmail')
+    ? {
+        service: 'gmail',
+        auth: { user, pass },
+      }
+    : {
+        host: host,
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: process.env.SMTP_SECURE === 'true' || parseInt(process.env.SMTP_PORT || '587') === 465,
+        auth: { user, pass },
+      };
+
+  const transporter = nodemailer.createTransport(transportConfig);
 
   const mailOptions = {
-    from: process.env.SMTP_FROM || `"VibeChat" <noreply@vibechat.com>`,
+    from: process.env.SMTP_FROM || `"VibeChat" <${user}>`,
     to: options.email,
     subject: options.subject,
     text: options.text,
@@ -43,16 +49,16 @@ const sendEmail = async (options) => {
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log(`Email sent successfully: ${info.messageId}`);
-    return true;
+    console.log(`Email sent successfully to ${options.email}: ${info.messageId}`);
+    return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Nodemailer send email error:', error);
-    // Even if it fails, fallback to console log so development is not blocked
+    console.error('Nodemailer send email error:', error.message || error);
+    // Dev fallback output so developers can still see code during local dev
     console.log('\n==================================================');
     console.log(`✉️  DEV FALLBACK (SMTP FAILED): EMAIL TO: ${options.email}`);
     console.log(`🔑 ${options.text}`);
     console.log('==================================================\n');
-    return false;
+    return { success: false, error: error.message || 'Failed to send email' };
   }
 };
 
