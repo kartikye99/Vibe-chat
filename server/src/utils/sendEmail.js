@@ -1,9 +1,12 @@
 const nodemailer = require('nodemailer');
 
 /**
- * Utility to send email via Resend HTTP API (production) or SMTP/nodemailer (local dev).
- * Resend is preferred for cloud deployments (Render, Vercel, etc.) because many
- * cloud platforms block outbound SMTP connections on ports 587/465.
+ * Utility to send email via Brevo HTTP API (production) or SMTP/nodemailer (local dev).
+ * Brevo is preferred for cloud deployments (Render, Vercel, etc.) because:
+ *  - Many cloud platforms block outbound SMTP connections on ports 587/465
+ *  - Brevo allows sending to ANY recipient without domain verification (300/day free)
+ *
+ * Priority: Brevo API → Resend API → SMTP (nodemailer) → Console fallback
  *
  * @param {Object} options - Email options
  * @param {string} options.email - Recipient email
@@ -12,7 +15,45 @@ const nodemailer = require('nodemailer');
  * @param {string} options.html - HTML content
  */
 
-// ─── Resend HTTP API transport (works on all cloud platforms) ───
+// ─── Brevo (Sendinblue) HTTP API transport ───
+const sendViaBrevo = async (options) => {
+  const apiKey = process.env.BREVO_API_KEY;
+  const senderEmail = process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'noreply@vibechat.com';
+  const senderName = process.env.BREVO_SENDER_NAME || 'VibeChat';
+
+  try {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': apiKey,
+        'Content-Type': 'application/json',
+        'accept': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: senderName, email: senderEmail },
+        to: [{ email: options.email }],
+        subject: options.subject,
+        textContent: options.text,
+        htmlContent: options.html,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error('Brevo API error:', data);
+      return { success: false, error: data.message || `Brevo HTTP ${res.status}` };
+    }
+
+    console.log(`Email sent via Brevo to ${options.email}: ${data.messageId}`);
+    return { success: true, messageId: data.messageId };
+  } catch (error) {
+    console.error('Brevo fetch error:', error.message || error);
+    return { success: false, error: error.message || 'Brevo request failed' };
+  }
+};
+
+// ─── Resend HTTP API transport ───
 const sendViaResend = async (options) => {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM || 'VibeChat <onboarding@resend.dev>';
@@ -89,18 +130,23 @@ const sendViaSMTP = async (options) => {
 
 // ─── Main sendEmail function ───
 const sendEmail = async (options) => {
-  // 1. Resend HTTP API (recommended for cloud / Render)
+  // 1. Brevo HTTP API (recommended for cloud — sends to ANY recipient, no domain needed)
+  if (process.env.BREVO_API_KEY) {
+    return sendViaBrevo(options);
+  }
+
+  // 2. Resend HTTP API (requires domain verification for non-test emails)
   if (process.env.RESEND_API_KEY) {
     return sendViaResend(options);
   }
 
-  // 2. SMTP via nodemailer (recommended for local dev)
+  // 3. SMTP via nodemailer (recommended for local dev)
   const smtpConfigured = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
   if (smtpConfigured) {
     return sendViaSMTP(options);
   }
 
-  // 3. Dev fallback — log OTP to console
+  // 4. Dev fallback — log OTP to console
   console.log('\n==================================================');
   console.log(`✉️  DEV FALLBACK: EMAIL TO: ${options.email}`);
   console.log(`📝 SUBJECT: ${options.subject}`);
